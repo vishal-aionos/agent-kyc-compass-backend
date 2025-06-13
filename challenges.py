@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 import json
 
 # API Keys
-SERPER_API_KEY = "d38fff68cf3c2e994f15273fb1f8dc5743535d2b"
+SERPER_API_KEY = "f0c55d7d2477ce91a08646fe49e813d19712f938"
 GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
 
 # Configure Gemini

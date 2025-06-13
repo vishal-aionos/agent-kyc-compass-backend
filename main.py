@@ -7,8 +7,25 @@ import uvicorn
 from company_overview import generate_company_snapshot
 from news import search_news, scrape_articles, summarize_articles, generate_themes_sync, get_news_snapshot
 from challenges import get_challenges_and_solutions, battle_challenges
+import os
+from fastapi.middleware.cors import CORSMiddleware
+import google.generativeai as genai
+
+# Configure Gemini
+GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 app = FastAPI(title="Company Analysis API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # Create a thread pool for parallel execution
 thread_pool = ThreadPoolExecutor(max_workers=3)
