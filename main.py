@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 import httpx
-from typing import Dict, Any
+from typing import Dict, Any, List
 import uvicorn
 from company_overview import generate_company_snapshot
 from news import search_news, scrape_articles, summarize_articles, generate_themes_sync, get_news_snapshot
@@ -10,11 +10,21 @@ from challenges import get_challenges_and_solutions, battle_challenges
 import os
 from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
+import time
+import random
+from bs4 import BeautifulSoup
+import ssl
+import re
+import platform
 
 # Configure Gemini
 GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.0-flash-lite")
+
+# Add Windows-specific event loop policy
+if platform.system() == 'Windows':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 app = FastAPI(title="Company Analysis API")
 
@@ -96,23 +106,14 @@ async def get_challenges_analysis(client: httpx.AsyncClient, company_name: str) 
     except Exception as e:
         return {"error": f"Challenges analysis error: {str(e)}"}
 
-@app.get("/analyze/{company_name}")
 async def analyze_company(company_name: str) -> Dict[str, Any]:
-    """
-    Analyze a company by running challenges analysis.
-    
-    Args:
-        company_name (str): Name of the company to analyze
-        
-    Returns:
-        Dict[str, Any]: Analysis results
-    """
+    """Analyze a company by running all analyses in parallel."""
     try:
+        start_time = time.time()
+        
         # Create an HTTP client for making requests
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Run challenges analysis
-            challenges = await get_challenges_analysis(client, company_name)
-                        # Run analyses in parallel
+            # Run analyses in parallel
             company_overview_task = get_company_overview_analysis(company_name)
             news_task = get_news_analysis(company_name)
             challenges_task = get_challenges_analysis(client, company_name)
@@ -133,15 +134,44 @@ async def analyze_company(company_name: str) -> Dict[str, Any]:
             if isinstance(challenges, Exception):
                 challenges = {"error": f"Challenges analysis error: {str(challenges)}"}
 
+            # Calculate total processing time
+            processing_time = time.time() - start_time
+            
+            # Extract battle summary from challenges if available
+            battle_summary = None
+            if isinstance(challenges, dict) and "battle_summary" in challenges:
+                battle_summary = challenges["battle_summary"]
+                # Remove battle summary from challenges to avoid duplication
+                challenges.pop("battle_summary", None)
+            
             # Combine the results
             result = {
                 "company_overview": company_overview,
                 "news": news,
-                "challenges": challenges
+                "challenges": challenges,
+                "battle_summary": battle_summary or {"error": "Failed to generate battle summary"},
+                "processing_time": f"{processing_time:.2f} seconds"
             }
             
             return result
             
+    except Exception as e:
+        return {"error": f"Analysis error: {str(e)}"}
+
+@app.get("/analyze/{company_name}")
+async def analyze_company_endpoint(company_name: str) -> Dict[str, Any]:
+    """
+    Analyze a company by running all analyses in parallel.
+    
+    Args:
+        company_name (str): Name of the company to analyze
+        
+    Returns:
+        Dict[str, Any]: Analysis results
+    """
+    try:
+        result = await analyze_company(company_name)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -155,5 +185,66 @@ async def root():
         }
     }
 
+async def main():
+    """Main function to run the company analysis."""
+    print("\n=== Company Analysis Tool ===\n")
+    company_name = input("Enter company name: ").strip()
+    
+    if not company_name:
+        print("Error: Please provide a valid company name.")
+        return
+    
+    print(f"\n🔍 Analyzing {company_name}...\n")
+    
+    try:
+        result = await analyze_company(company_name)
+        
+        print("\n📊 ANALYSIS RESULTS")
+        print("=" * 50)
+        
+        # Print company overview
+        if "company_overview" in result:
+            print("\n🏢 COMPANY OVERVIEW")
+            print("-" * 30)
+            print(result["company_overview"].get("snapshot", "No overview available"))
+        
+        # Print news analysis
+        if "news_analysis" in result:
+            print("\n📰 NEWS ANALYSIS")
+            print("-" * 30)
+            if "themes" in result["news_analysis"]:
+                for theme, content in result["news_analysis"]["themes"].items():
+                    print(f"\n{theme}:")
+                    print(content)
+            print(f"\nNews Snapshot:\n{result['news_analysis'].get('news_snapshot', 'No news snapshot available')}")
+        
+        # Print challenges analysis
+        if "challenges_analysis" in result:
+            print("\n🎯 CHALLENGES & SOLUTIONS")
+            print("-" * 30)
+            if "challenges" in result["challenges_analysis"]:
+                print(result["challenges_analysis"]["challenges"].get("analysis", "No challenges analysis available"))
+        
+        # Print battle summary
+        if "battle_summary" in result:
+            print("\n⚔️ BATTLE SUMMARY")
+            print("-" * 30)
+            if isinstance(result["battle_summary"], dict) and "battle_summary" in result["battle_summary"]:
+                print(result["battle_summary"]["battle_summary"])
+            else:
+                print(result["battle_summary"].get("error", "No battle summary available"))
+        
+        print(f"\n⏱️ Total processing time: {result['processing_time']}")
+        
+    except Exception as e:
+        print(f"❌ An error occurred: {str(e)}")
+    finally:
+        # Clean up resources
+        thread_pool.shutdown(wait=False)
+
+def run_async_main():
+    """Run the async main function."""
+    asyncio.run(main())
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    run_async_main()
