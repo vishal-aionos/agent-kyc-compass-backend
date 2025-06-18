@@ -34,7 +34,7 @@ app = FastAPI(title="Company Analysis API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
@@ -219,28 +219,27 @@ async def analyze_company(company_name: str) -> Dict[str, Any]:
         # Create an HTTP client for making requests
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Run analyses in parallel
-            # company_overview_task = get_company_overview_analysis(company_name)
-            # news_task = get_news_analysis(company_name)
-            # challenges_task = get_challenges_analysis(client, company_name)
+            company_overview_task = get_company_overview_analysis(company_name)
+            news_task = get_news_analysis(company_name)
+            challenges_task = get_challenges_analysis(client, company_name)
             industry_task = get_industry_analysis(company_name)
             
             # Wait for all tasks to complete
-            # company_overview, news, challenges, 
-            industry = await asyncio.gather(
-                # company_overview_task,
-                # news_task,
-                # challenges_task,
+            company_overview, news, challenges, industry = await asyncio.gather(
+                company_overview_task,
+                news_task,
+                challenges_task,
                 industry_task,
                 return_exceptions=True  # This will prevent one task from failing the entire request
             )
             
             # Handle any exceptions that occurred during task execution
-            # if isinstance(company_overview, Exception):
-            #     company_overview = {"error": f"Company overview error: {str(company_overview)}"}
-            # if isinstance(news, Exception):
-            #     news = {"error": f"News analysis error: {str(news)}"}
-            # if isinstance(challenges, Exception):
-            #     challenges = {"error": f"Challenges analysis error: {str(challenges)}"}
+            if isinstance(company_overview, Exception):
+                company_overview = {"error": f"Company overview error: {str(company_overview)}"}
+            if isinstance(news, Exception):
+                news = {"error": f"News analysis error: {str(news)}"}
+            if isinstance(challenges, Exception):
+                challenges = {"error": f"Challenges analysis error: {str(challenges)}"}
             if isinstance(industry, Exception):
                 industry = {"error": f"Industry analysis error: {str(industry)}"}
 
@@ -248,19 +247,19 @@ async def analyze_company(company_name: str) -> Dict[str, Any]:
             processing_time = time.time() - start_time
             
             # Extract battle summary from challenges if available
-            # battle_summary = None
-            # if isinstance(challenges, dict) and "battle_summary" in challenges:
-            #     battle_summary = challenges["battle_summary"]
-            #     # Remove battle summary from challenges to avoid duplication
-            #     challenges.pop("battle_summary", None)
+            battle_summary = None
+            if isinstance(challenges, dict) and "battle_summary" in challenges:
+                battle_summary = challenges["battle_summary"]
+                # Remove battle summary from challenges to avoid duplication
+                challenges.pop("battle_summary", None)
             
             # Combine the results
             result = {
-                # "company_overview": company_overview,
-                # "news": news,
-                # "challenges": challenges,
+                "company_overview": company_overview,
+                "news": news,
+                "challenges": challenges,
                 "industry": industry,
-                # "battle_summary": battle_summary or {"error": "Failed to generate battle summary"},
+                "battle_summary": battle_summary or {"error": "Failed to generate battle summary"},
                 "processing_time": f"{processing_time:.2f} seconds"
             }
             
