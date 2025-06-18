@@ -10,87 +10,97 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Prompt template for industry analysis
-PROMPT_TEMPLATE = """You are an expert market analyst. For the company "{company}", provide a detailed and structured industry overview based on its country of origin and primary operating geography.
+PROMPT_TEMPLATE = """You are an expert market analyst. Analyze the company "{company}" by identifying its country of origin and primary operating geography using publicly available data (e.g., headquarters, country of incorporation, or dominant market presence).
 
-Automatically identify the company’s geographic focus based on publicly available information, such as its country of registration, headquarters location, or dominant market.
+Your task is to deliver a structured, insight-rich industry overview organized into three main sections:
+Market Structure & Dynamics, Competitive Landscape, and Macro Environment & Forward Outlook.
 
-Organize the analysis into the following three major sections, tailored to the company’s core industry and geographic context. For each subsection, present exactly 4 concise, bullet-pointed insights, using current, specific, and relevant data or trends. Do not include vague or speculative statements, and avoid generic qualifiers like “as per my knowledge”.
+Each subsection must contain exactly 4 concise bullet points, except PESTLE, which must have 6 bullets (one for each macro factor).
 
-Where applicable, cite real-world market dynamics, public sources (e.g., Statista, IMF, Gartner, IDC), or specific examples to ground the analysis.
+Important output formatting instructions:
 
-1. Market Structure & Dynamics
-Industry Definition & Scope
-Clearly define the industry, its key sub-sectors, and value chain structure.
+Start each section with a clear header (e.g., Market Structure & Dynamics).
 
-Provide 4 bullet points, each describing a distinct feature or component of the industry's scope or segmentation.
+For each subsection, use a bold italic header (e.g., Industry Definition & Scope).
 
-Market Size & Growth
-Quantify the current market size, past growth trends, and forecasted growth rates.
+List insights as plain bullet points using this exact structure:
 
-Provide 4 bullet points, including figures like TAM, CAGR, and primary growth drivers.
+css
+Copy
+Edit
+***[Subsection Name]***
+• [Insight 1]
+• [Insight 2]
+• [Insight 3]
+• [Insight 4]
+Each bullet must be:
 
-Geographic & Segment Breakdown
-Analyze how the market divides by geography, customer segments, or verticals.
+1 short, complete sentence
 
-Provide 4 bullet points on regional dynamics, segment-level performance, and demand patterns within the specified geography.
+Data-rich, containing a stat, figure, name, or verifiable insight
 
-2. Competitive Landscape
+Industry-specific, geography-specific, and timely
+
+Grounded in real-world market intelligence (e.g., Statista, Gartner, IDC, World Bank, IMF)
+
+No vague phrases like “it is believed that” or “may be”
+
+Sections and Subsections Required:
+
+Market Structure & Dynamics
+
+Industry Definition & Scope: Define the company’s industry, sub-sectors, and value chain.
+
+Market Size & Growth: Provide total market size (TAM), past growth, future CAGR, and drivers.
+
+Geographic & Segment Breakdown: Segment market by region, customer type, or vertical.
+
 Competitive Landscape
-Identify top incumbents, challengers, and market structure (e.g., fragmented vs. consolidated).
-Provide 4 bullet points with each point in one short and valid sentence, comparing player positions, market share, strategic moves, or barriers to entry.
 
-Value Chain & Ecosystem
-Map the supply chain , distribution networks, and key partnerships.
+Competitive Landscape: Identify key players, market shares, challengers, and structure.
 
-Provide 4 bullet points with each point in one short and valid sentence, in value chain basic format describing where value is generated or leaked across the chain, and ecosystem dynamics.
+Value Chain & Ecosystem: Cover supply chains, distribution, partnerships, and value dynamics.
 
-Technology & Innovation
-Highlight emerging technologies, digital transformations, and R&D investment trends.
+Technology & Innovation: Highlight emerging tech, R&D investment, and digital themes.
 
-Provide 4 bullet points with each point in one short and valid sentence, on innovation themes, adoption rates, or competitive technology positioning.
+Macro Environment & Forward Outlook
 
-3. Macro Environment & Forward Outlook
-PESTLE Analysis
-Examine macro-level forces—Political, Economic, Social, Technological, Legal, Environmental—that affect the industry.
+PESTLE Analysis: One bullet per macro factor — Political, Economic, Social, Technological, Legal, Environmental (6 total).
 
-Provide 6 bullet points, each covering one macro factor with specific, recent examples or trends.
+Risks & Challenges: Outline 4 critical operational, regulatory, or market risks.
 
-Risks & Challenges
-Describe operational, structural, regulatory, or competitive risks relevant to the company and region.
+Opportunities & Outlook: Highlight 4 forward-looking opportunities, trends, or growth areas.
 
-Provide 4 bullet points with each point in one short and valid sentence, on key risks or frictions hindering market efficiency or growth.
+Final Output Must Be Formatted Exactly Like This:
 
-Opportunities & Outlook
-Present future-looking insights, whitespace opportunities, and analyst projections.
+css
+Copy
+Edit
+**[Section Title]**
 
-Provide 4 bullet points with each point in one short and valid sentence, outlining specific growth levers, adjacent markets, or transformative trends forecasted over the next 1–5 years."""
+***[Subsection Title]***
+• [Insight 1]
+• [Insight 2]
+• [Insight 3]
+• [Insight 4]
 
-# Prompt for geography detection
-GEOGRAPHY_PROMPT = """For the company "{company}", identify the country or region where it was originally founded/established.
-Return ONLY the location name (e.g., "United States", "Japan", "Germany") without any additional text or explanation.
-If you cannot determine the origin location, return "Global"."""
+***[Next Subsection Title]***
+• [Insight 1]
+• [Insight 2]
+• [Insight 3]
+• [Insight 4]
+Your response must contain no introduction, summary, or explanation. Only output the format exactly as shown."""
 
-async def detect_company_geography(company_name: str) -> str:
-    """Detect the primary geography of a company using LLM."""
-    try:
-        prompt = GEOGRAPHY_PROMPT.format(company=company_name)
-        response = model.generate_content(prompt)
-        geography = response.text.strip()
-        return geography if geography else "Global"
-    except Exception as e:
-        print(f"Error detecting company geography: {str(e)}")
-        return "Global"
+
+
 
 async def get_industry_analysis(company_name: str) -> Dict[str, Any]:
     """Get industry overview for a company."""
     try:
-        # Detect company geography
-        geography = await detect_company_geography(company_name)
         
         # Generate industry overview using Gemini
         prompt = PROMPT_TEMPLATE.format(
-            company=company_name,
-            geography=geography
+            company=company_name
         )
         
         response = model.generate_content(prompt)
@@ -98,7 +108,6 @@ async def get_industry_analysis(company_name: str) -> Dict[str, Any]:
         
         return {
             "company_name": company_name,
-            "geography": geography,
             "analysis": analysis
         }
             

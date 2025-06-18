@@ -16,7 +16,8 @@ from bs4 import BeautifulSoup
 import ssl
 import re
 import platform
-from industry import get_industry_analysis
+import json
+
 
 # Configure Gemini
 GEMINI_API_KEY = "AIzaSyAt_c0xgaXGg9H4oFX0YUqsQuhnV4gi7BY"
@@ -108,95 +109,106 @@ async def get_challenges_analysis(client: httpx.AsyncClient, company_name: str) 
         return {"error": f"Challenges analysis error: {str(e)}"}
 
 # Prompt template for industry analysis
-PROMPT_TEMPLATE ="""You are an expert market analyst. Analyze the company "{company}" by identifying its country of origin and primary operating geography automatically, based on publicly available data (e.g., country of registration, headquarters, dominant market).
-
-Your task is to deliver a detailed industry overview that is structured into three main sections: Market Structure & Dynamics, Competitive Landscape, and Macro Environment & Forward Outlook.
-
-For each subsection, provide exactly 4 concise bullet points (except PESTLE which requires 6), each being one valid sentence that presents a specific, current, and geography-relevant insight.
-
-Use verifiable, real-world data and insights wherever possible (e.g., from Statista, Gartner, IMF, IDC, World Bank). Do not speculate or include vague statements like “it is believed that.” Each insight should be rooted in observable market trends or dynamics that directly relate to the company’s industry and its operating geography.
-
-Your final output must be a JSON object that strictly follows this structure:
-
-Sections to include in your analysis (output as shown in JSON):
-
-Market Structure & Dynamics
-
-Industry Definition & Scope: Define the industry the company operates in, its key sub-sectors, and how the value chain is structured.
-Provide 4 clear, one-sentence bullet points.
-
-Market Size & Growth: Provide figures for total market size (TAM), historical growth, future CAGR, and key growth drivers.
-Provide 4 bullet points with precise data.
-
-Geographic & Segment Breakdown: Break down the market by geography, customer segments, or industry verticals.
-Provide 4 bullet points with regional or segment-level insights.
-
-Competitive Landscape
-
-Competitive Landscape: Identify leading players, challengers, market shares, and whether the structure is fragmented or consolidated.
-Provide 4 bullet points with comparative or strategic insights.
-
-Value Chain & Ecosystem: Describe the supply chain, distribution channels, partnerships, and where value is created or leaked.
-Provide 4 bullet points with supply chain or ecosystem insights.
-
-Technology & Innovation: Highlight major technology trends, R&D investments, and innovation themes.
-Provide 4 bullet points related to innovation, digital transformation, or emerging tech.
-
-Macro Environment & Forward Outlook
-
-PESTLE Analysis: Cover 6 macro factors affecting the industry (Political, Economic, Social, Technological, Legal, Environmental).
-Provide 1 bullet per factor, totaling 6.
-
-Risks & Challenges: Identify operational, structural, regulatory, or market risks relevant to the industry.
-Provide 4 bullet points describing major friction points or constraints.
-
-Opportunities & Outlook: Present white space opportunities, growth areas, and future projections.
-Provide 4 forward-looking bullet points based on trends or analyst views.
-
-Important rules:
-
-Each bullet must be 1 short, data-rich sentence.
-
-All insights must be industry-specific, geography-specific, and timely.
-
-Your final answer must be formatted as a structured JSON object exactly as shown above—do not include an introduction, summary, or any extra content.
-"""
-
-
+PROMPT_TEMPLATE = """You are an expert market analyst. Analyze the company "{company}" by automatically determining its country of origin and primary operating geography using publicly available data.If the company operates primarily in India, all market insights, figures, and regulatory or macroeconomic context should reference India-specific standards, trends, and authorities (e.g., Indian government policy, RBI, SEBI, TRAI, NITI Aayog, Indian market data from Statista or McKinsey, etc.). Otherwise, use the relevant geographic standards accordingly.
+provide the data in the following JSON format. Return ONLY the JSON object, no other text:
+provide each point with one sentence with more effective information with bullet mark
+{{
+"market_structure_dynamics": {{
+"industry_definition": "Provide 4 brief bullet points defining the industry’s boundaries,core sub-sectors and standard taxonomy..",
+"market_size": "Provide 4 bullet points covering market size and growth rate and Quantifies current market value (revenue/volume), historical trends and 3–5 year forecasts..",
+"geographic_&_segment_breakdown": "Provide 4 points describing Splits the market by region and customer/end-market segments, showing relative contributions.."
+}},
+"competitive_landscape": {{
+"major_competitors": "List 4 main competitors and Profiles major incumbents and challengers, plus market concentration metrics in the industry.",
+"Value_chain_ecosystem": "List 4 point that defines Maps upstream suppliers, downstream channels and where value is created (P2 priority - ok if not executable).",
+"Technology & Innovation": "Highlight 4 current trends shaping the industry."
+}},
+"macro_environment": {{
+"PESTLE_analysis": {{
+"political": "List 4 political factors affecting the industry in one sentence.",
+"economic": "Provide 4 key economic conditions influencing the industry in one sentence..",
+"social": "List 4 relevant social or cultural factors in one sentence..",
+"technological": "Mention 4 technological developments impacting the sector in one sentence..",
+"legal": "Outline 4 legal or regulatory aspects.",
+"environmental": "List 4 environmental considerations for the industry."
+}},
+"risks_challenges": "list 4 points that summarises principal headwinds, bottlenecks and regulatory/policy risks that could derail growth.",
+"opportunities_outlook": "list 4 points that Identifies white-space markets, adjacent expansion levers and consensus analyst forecasts for the next 1–5 years."
+}}"""
 
 async def get_industry_analysis(company_name: str) -> Dict[str, Any]:
     """Get industry overview for a company."""
     try:
-        # Detect company geography
-        
         # Generate industry overview using Gemini
-        prompt = PROMPT_TEMPLATE.format(
-            company=company_name
-        )
+        prompt = PROMPT_TEMPLATE.format(company=company_name)
         
-        response = model.generate_content(prompt)
-        analysis_text = response.text.strip()
+        # Get response from model with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content(prompt)
+                raw_output = response.text.strip()
+                
+                # # Debug print
+                # print(f"Attempt {attempt + 1} - Raw model output:", raw_output)
+                
+                # Try to parse the output as JSON
+                try:
+                    # First try direct JSON parsing
+                    analysis_data = json.loads(raw_output)
+                except json.JSONDecodeError:
+                    # If that fails, try to clean and parse
+                    # Remove any markdown formatting
+                    cleaned_output = raw_output.replace('```json', '').replace('```', '').strip()
+                    # Remove any leading/trailing quotes
+                    cleaned_output = cleaned_output.strip('"\'')
+                    analysis_data = json.loads(cleaned_output)
+                
+                # Validate the structure
+                required_sections = ["market_structure_dynamics", "competitive_landscape", "macro_environment"]
+                for section in required_sections:
+                    if section not in analysis_data:
+                        analysis_data[section] = {"error": f"Missing {section} data"}
+                
+                return {
+                    "company_name": company_name,
+                    "analysis": analysis_data
+                }
+                
+            except Exception as e:
+                print(f"Attempt {attempt + 1} failed: {str(e)}")
+                if attempt == max_retries - 1:
+                    raise
+                continue
         
-        # Try to parse the JSON response
-        try:
-            import json
-            import re
-            analysis_text = re.findall(r"```json\s*(\{.*?\})\s*```", analysis_text, re.DOTALL)[-1] 
-            analysis = json.loads(analysis_text)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON response: {str(e)}")
-            # If JSON parsing fails, return the raw text
-            analysis = {"raw_analysis": analysis_text}
-        
+    except Exception as e:
+        print(f"All attempts failed: {str(e)}")
+        # Return a structured error response
         return {
             "company_name": company_name,
-            "analysis": analysis
-        }
-            
-    except Exception as e:
-        print(f"Error in get_industry_overview: {str(e)}")
-        return {
-            "error": f"Error generating industry overview: {str(e)}"
+            "analysis": {
+                "error": f"Industry analysis error: {str(e)}",
+                "market_structure_dynamics": {
+                    "industry_definition": "Analysis failed",
+                    "market_size": "Analysis failed",
+                    "key_segments": "Analysis failed",
+                    "geographic_presence": "Analysis failed"
+                },
+                "competitive_landscape": {
+                    "major_competitors": "Analysis failed",
+                    "market_position": "Analysis failed",
+                    "competitive_advantages": "Analysis failed",
+                    "industry_trends": "Analysis failed"
+                },
+                "macro_environment": {
+                    "political": "Analysis failed",
+                    "economic": "Analysis failed",
+                    "social": "Analysis failed",
+                    "technological": "Analysis failed",
+                    "legal": "Analysis failed",
+                    "environmental": "Analysis failed"
+                }
+            }
         }
 
 async def analyze_company(company_name: str) -> Dict[str, Any]:
@@ -207,27 +219,28 @@ async def analyze_company(company_name: str) -> Dict[str, Any]:
         # Create an HTTP client for making requests
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Run analyses in parallel
-            company_overview_task = get_company_overview_analysis(company_name)
-            news_task = get_news_analysis(company_name)
-            challenges_task = get_challenges_analysis(client, company_name)
+            # company_overview_task = get_company_overview_analysis(company_name)
+            # news_task = get_news_analysis(company_name)
+            # challenges_task = get_challenges_analysis(client, company_name)
             industry_task = get_industry_analysis(company_name)
             
             # Wait for all tasks to complete
-            company_overview, news, challenges, industry = await asyncio.gather(
-                company_overview_task,
-                news_task,
-                challenges_task,
+            # company_overview, news, challenges, 
+            industry = await asyncio.gather(
+                # company_overview_task,
+                # news_task,
+                # challenges_task,
                 industry_task,
                 return_exceptions=True  # This will prevent one task from failing the entire request
             )
             
             # Handle any exceptions that occurred during task execution
-            if isinstance(company_overview, Exception):
-                company_overview = {"error": f"Company overview error: {str(company_overview)}"}
-            if isinstance(news, Exception):
-                news = {"error": f"News analysis error: {str(news)}"}
-            if isinstance(challenges, Exception):
-                challenges = {"error": f"Challenges analysis error: {str(challenges)}"}
+            # if isinstance(company_overview, Exception):
+            #     company_overview = {"error": f"Company overview error: {str(company_overview)}"}
+            # if isinstance(news, Exception):
+            #     news = {"error": f"News analysis error: {str(news)}"}
+            # if isinstance(challenges, Exception):
+            #     challenges = {"error": f"Challenges analysis error: {str(challenges)}"}
             if isinstance(industry, Exception):
                 industry = {"error": f"Industry analysis error: {str(industry)}"}
 
@@ -235,19 +248,19 @@ async def analyze_company(company_name: str) -> Dict[str, Any]:
             processing_time = time.time() - start_time
             
             # Extract battle summary from challenges if available
-            battle_summary = None
-            if isinstance(challenges, dict) and "battle_summary" in challenges:
-                battle_summary = challenges["battle_summary"]
-                # Remove battle summary from challenges to avoid duplication
-                challenges.pop("battle_summary", None)
+            # battle_summary = None
+            # if isinstance(challenges, dict) and "battle_summary" in challenges:
+            #     battle_summary = challenges["battle_summary"]
+            #     # Remove battle summary from challenges to avoid duplication
+            #     challenges.pop("battle_summary", None)
             
             # Combine the results
             result = {
-                "company_overview": company_overview,
-                "news": news,
-                "challenges": challenges,
+                # "company_overview": company_overview,
+                # "news": news,
+                # "challenges": challenges,
                 "industry": industry,
-                "battle_summary": battle_summary or {"error": "Failed to generate battle summary"},
+                # "battle_summary": battle_summary or {"error": "Failed to generate battle summary"},
                 "processing_time": f"{processing_time:.2f} seconds"
             }
             
